@@ -186,6 +186,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   
+  /* Phase 1 Changes :- */
   /* Iterate through the `waiting_queue` to wake up threads using `sema_up()` */
   struct timer_sleeper* cur;
   struct list_elem* next = list_begin (&waiting_queue);
