@@ -9,6 +9,7 @@
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
 
+/* Phase 1 Changes */
 /* Timer sleeper */
 struct timer_sleeper 
   {
