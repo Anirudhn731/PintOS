@@ -37,6 +37,10 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+  /* Phase 1 Changes :- */
+  list_init(&waiting_queue);
+  lock_init(&queue_lock);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -92,8 +96,18 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  
+  /* Phase 1 Changes :- */
+  struct timer_sleeper cur;
+  sema_init (&cur.timer_sema, 0);
+  cur.amount_ticks = start+ticks;
+
+  /* Synchronization for `waiting_queue` using `queue_lock` */
+  lock_acquire (&queue_lock);
+  list_push_back (&waiting_queue, &cur.elem);
+  lock_release (&queue_lock);
+
+  sema_down (&cur.timer_sema);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -171,6 +185,22 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  
+  /* Iterate through the `waiting_queue` to wake up threads using `sema_up()` */
+  struct timer_sleeper* cur;
+  struct list_elem* next = list_begin (&waiting_queue);
+  while (next != list_end (&waiting_queue))
+  {
+    cur = list_entry (next, struct timer_sleeper, elem);
+    if (cur->amount_ticks <= ticks)
+      {
+        sema_up (&cur->timer_sema);
+        next = list_remove (next);  /* Remove list_elem after waking up thread */
+      }
+    else
+        next = list_next (next);
+  }
+  
   thread_tick ();
 }
 
