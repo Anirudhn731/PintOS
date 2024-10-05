@@ -30,9 +30,6 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
-static struct list waiting_queue;
-static struct lock queue_lock;
-
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -96,17 +93,18 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
-  struct timer_interrupters cur;
 
   ASSERT (intr_get_level () == INTR_ON);
-  sema_init(&cur.timer_sema, 0);
-  // cur.running_thread = thread_current();
+  
+  struct timer_sleeper cur;
+  sema_init (&cur.timer_sema, 0);
   cur.amount_ticks = start+ticks;
-  lock_acquire(&queue_lock);
-  list_push_back(&waiting_queue, &cur.elem);
-  printf("[Anirudh] Length of queue : %d <-- %d\n", list_size(&waiting_queue), start+ticks);
-  lock_release(&queue_lock);
-  sema_down(&cur.timer_sema);
+
+  lock_acquire (&queue_lock);
+  list_push_back (&waiting_queue, &cur.elem);
+  lock_release (&queue_lock);
+  
+  sema_down (&cur.timer_sema);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -183,17 +181,15 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  struct timer_interrupters* cur;
+  struct timer_sleeper* cur;
   ticks++;
   
-  struct list_elem* next = list_begin(&waiting_queue);
+  struct list_elem* next = list_begin (&waiting_queue);
   while (next != list_end (&waiting_queue))
   {
-    cur = list_entry(next, struct timer_interrupters, elem);
+    cur = list_entry (next, struct timer_sleeper, elem);
     if (cur->amount_ticks <= ticks)
       {
-        printf("[Anirudh] amount ticks :- %d\n", cur->amount_ticks);
-        printf("[Anirudh] sema up is called here!\n");
         sema_up (&cur->timer_sema);
         next = list_remove (next);
       }

@@ -9,13 +9,16 @@
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
 
-struct timer_interrupters 
+/* Timer sleeper */
+struct timer_sleeper 
   {
-    //struct thread* running_thread;
     struct semaphore timer_sema; /* Counting semaphore for timer */
     int amount_ticks;            /* To save the info of start(start timer tick)+ticks(sleep time of alarm clock) of interrupter */
-    struct list_elem elem;
+    struct list_elem elem;       /* List elem to use with a queue list */
   };
+
+static struct list waiting_queue; /* Waiting Queue for Timer sleeper */
+static struct lock queue_lock;    /* Lock Synchronization for waiting_queue */
 
 
 void timer_init (void);
