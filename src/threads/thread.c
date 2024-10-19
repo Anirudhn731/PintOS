@@ -200,6 +200,8 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+  if (!intr_context ())
+    thread_yield ();
 
   return tid;
 }
@@ -336,13 +338,28 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+
+  if (!intr_context ())
+    thread_yield();
 }
 
-/* Returns the current thread's priority. */
+/* Returns the current thread's priority(or donation priority whichever is greater). */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  struct thread* curr_thread = thread_current();
+  int thread_priority = (curr_thread->donation_priority > curr_thread->priority) ?
+                          curr_thread->donation_priority : curr_thread->priority;
+  return thread_priority;
+}
+
+/* Returns the given thread's priority(or donation priority whichever is greater). */
+int
+thread_ask_priority (struct thread* t) 
+{
+  int thread_priority = (t->donation_priority > t->priority) ?
+                          t->donation_priority : t->priority;
+  return thread_priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -462,7 +479,10 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->donation_priority = PRI_MIN;
   t->magic = THREAD_MAGIC;
+  list_init (&t->locks);
+  t->locker = NULL;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -482,6 +502,18 @@ alloc_frame (struct thread *t, size_t size)
   return t->stack;
 }
 
+/* Compare func to get the highest priority thread*/
+bool
+get_highprio_thread (const struct list_elem* thread_1_elem, const struct list_elem* thread_2_elem, void * aux UNUSED)
+{
+  struct thread* thread_1 = list_entry (thread_1_elem, struct thread, elem);
+  struct thread* thread_2 = list_entry (thread_2_elem, struct thread, elem);
+  int thread_1_max_prio = thread_ask_priority (thread_1);
+  int thread_2_max_prio = thread_ask_priority (thread_2);
+  
+  return thread_1_max_prio < thread_2_max_prio;
+}
+
 /* Chooses and returns the next thread to be scheduled.  Should
    return a thread from the run queue, unless the run queue is
    empty.  (If the running thread can continue running, then it
@@ -493,7 +525,14 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  {
+    /* Get the highest priority and remove it from ready queue to schedule. */
+    struct list_elem* highprio_thread_elem = list_max (&ready_list, get_highprio_thread, NULL);
+    struct thread* highprio_thread = list_entry (highprio_thread_elem, struct thread, elem);
+    list_remove (highprio_thread_elem);
+
+    return highprio_thread;
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -554,6 +593,7 @@ schedule (void)
 {
   struct thread *cur = running_thread ();
   struct thread *next = next_thread_to_run ();
+  
   struct thread *prev = NULL;
 
   ASSERT (intr_get_level () == INTR_OFF);
