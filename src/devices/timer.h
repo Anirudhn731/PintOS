@@ -18,8 +18,8 @@ struct timer_sleeper
     struct list_elem elem;       /* List elem to use with a queue list */
   };
 
-static struct list waiting_queue; /* Waiting Queue for Timer sleeper */
-static struct lock queue_lock;    /* Lock Synchronization for waiting_queue */
+extern struct list waiting_queue; /* Waiting Queue for Timer sleeper */
+extern struct lock queue_lock;    /* Lock Synchronization for waiting_queue */
 
 
 void timer_init (void);

@@ -1,9 +1,10 @@
 #ifndef THREADS_THREAD_H
 #define THREADS_THREAD_H
-
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+#include "threads/fixed-point.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -91,6 +92,9 @@ struct thread
     int donation_priority;              /* Donated Priority implemented to avoid priority inversion */
     struct list_elem allelem;           /* List element for all threads list. */
 
+    fixed_point_t nice;
+    fixed_point_t recent_cpu;
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     struct list locks;                  /* List for tracking all locks */
@@ -137,11 +141,13 @@ int thread_get_priority (void);
 int thread_ask_priority (struct thread* t);
 void thread_set_priority (int);
 
+// Phase 3 changes
+bool get_highprio_thread (const struct list_elem* thread_1_elem, const struct list_elem* thread_2_elem, void * aux UNUSED);
+bool is_higher_priority(struct thread* first, struct thread* second);
+
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-
-bool get_highprio_thread (const struct list_elem* thread_1_elem, const struct list_elem* thread_2_elem, void * aux UNUSED);
 
 #endif /* threads/thread.h */
