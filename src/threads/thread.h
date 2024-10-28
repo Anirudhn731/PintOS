@@ -4,6 +4,8 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+#include "threads/fixed-point-arithematic.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -91,6 +93,9 @@ struct thread
     int donation_priority;              /* Donated Priority implemented to avoid priority inversion */
     struct list_elem allelem;           /* List element for all threads list. */
 
+    fixed_point_t nice;                 /* Nice value for MLFQS Advanced Scheduler */
+    fixed_point_t recent_cpu;           /* Recent CPU to track how recent a thread had access to CPU*/
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     struct list locks;                  /* List for tracking all locks */
@@ -109,6 +114,11 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+struct list mlfqs_list [PRI_MAX + 1];   /* Multi-Level Feedback Queue */
+
+fixed_point_t mlfqs_load_avg;           /* Load average value for MLFQS calculations */
+int mlfqs_ready_threads;                /* Number of ready threads */
 
 void thread_init (void);
 void thread_start (void);
