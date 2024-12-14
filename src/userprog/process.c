@@ -17,9 +17,11 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static void allocate_args(int argc, char** tokens, void **esp);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -28,8 +30,14 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
+  sema_init(&userprog_exit_sema, 0);
   char *fn_copy;
   tid_t tid;
+
+  char* file_name_copy = malloc((strlen(file_name) + 1) * sizeof(char));
+  strlcpy(file_name_copy, file_name, strlen(file_name) + 1);
+  char* rest;
+  file_name_copy = strtok_r(file_name_copy, " ", &rest);
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -39,9 +47,11 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (file_name_copy, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+
+  free(file_name_copy);
   return tid;
 }
 
@@ -88,6 +98,8 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+ sema_down(&userprog_exit_sema);
+// while(!thread_current()->ex) ;
   return -1;
 }
 
@@ -114,6 +126,8 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  
+  sema_up(&userprog_exit_sema);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -215,6 +229,21 @@ load (const char *file_name, void (**eip) (void), void **esp)
   bool success = false;
   int i;
 
+  /* Tokenizing `file_name` using a copy */
+  char file_name_copy[strlen(file_name) + 1];
+  strlcpy(file_name_copy, file_name, strlen(file_name) + 1);
+  char* token;
+  char* rest = file_name_copy;
+
+  char** tokens;
+  int argc = 0;
+  while ((token = strtok_r(rest, " ", &rest))) {
+    argc++;
+    tokens = (char **)realloc(tokens, argc * sizeof(char *));
+    tokens[argc - 1] = (char *)malloc((strlen(token) + 1) * sizeof(char));
+    strlcpy(tokens[argc - 1], token, strlen(token) + 1);
+  }
+
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
@@ -222,10 +251,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (tokens[0]);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", tokens[0]);
       goto done; 
     }
 
@@ -238,7 +267,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      printf ("load: %s: error loading executable\n", tokens[0]);
       goto done; 
     }
 
@@ -305,6 +334,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (!setup_stack (esp))
     goto done;
 
+  allocate_args(argc, tokens, esp);
+
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;
 
@@ -315,6 +346,58 @@ load (const char *file_name, void (**eip) (void), void **esp)
   file_close (file);
   return success;
 }
+
+/* To allocate the user-passed arguments into the stack section */
+static void allocate_args(int argc, char** tokens, void **esp) {
+
+  void* sp = *esp;
+  uint64_t argv[argc];
+  int total_len = 0;
+  for (int i = 0; i < argc; i++) {
+    int token_len = strlen(tokens[i]) + 1;
+    total_len += token_len;
+
+    sp -= token_len;
+    argv[i] = (uint64_t)sp;
+    memcpy(sp, tokens[i], token_len);
+    free(tokens[i]);
+  }
+  free(tokens);
+
+  /* Adding padding */
+  int padding = (4 - (total_len % 4)) % 4;
+  if (padding) {
+    sp -= padding;
+    memset(sp, 0, padding);
+  }
+  
+  /* Adding NULL */
+  sp -= sizeof(int);
+  memset(sp, 0, sizeof(int)); // Change this to 4 and check
+
+  /* Adding argv */
+  for (int i = argc - 1; i >= 0; i--) {
+    sp -= sizeof(char *);
+    *((char **) sp) = (char *)argv[i];
+  }
+
+
+  char** argv_addr = (char **) sp;
+  sp -= sizeof(char **);
+  *((char ***) sp) = argv_addr;
+
+  /* Adding argc */
+  sp -= sizeof(int);
+  *((int *) sp) = argc;
+
+  /* Adding 'fake' return address */
+  sp -= sizeof(int *);
+  *((int *) sp) = 0;
+  
+  *esp = sp;
+  // hex_dump(sp, sp, PHYS_BASE-(sp), true);
+}
+
 
 /* load() helpers. */
 
@@ -437,7 +520,7 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+        *esp = PHYS_BASE - 12;
       else
         palloc_free_page (kpage);
     }
