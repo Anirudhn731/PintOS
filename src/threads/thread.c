@@ -13,6 +13,7 @@
 #include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#include "userprog/syscall.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -59,6 +60,22 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
+/* A common lock for controlling threads' access to the file system */
+struct lock lock_filesys;
+
+/* Function to acquire the lock for file system */
+void 
+lock_acquire_filesys() {
+  lock_acquire(&lock_filesys);
+}
+
+/* Function to release the lock for file system */
+void 
+lock_release_filesys()
+{
+  lock_release(&lock_filesys);
+}
+
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
@@ -89,6 +106,7 @@ thread_init (void)
 {
   ASSERT (intr_get_level () == INTR_OFF);
 
+  lock_init(&lock_filesys);
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
@@ -182,6 +200,10 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  struct child_thread* child = malloc(sizeof(*child));
+  child->child_tid = tid;
+  child->is_exit = false;
+  list_push_back(&(thread_current()->child_threads), &(child->elem));
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -285,6 +307,11 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
+
+  while(!list_empty(&(thread_current()->child_threads))) {
+    free(list_entry(list_pop_front(&(thread_current()->child_threads)), struct child_thread, elem));
+
+  }
 
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
@@ -463,6 +490,17 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  // #ifdef USERPROG
+  t->parent_thread = running_thread();
+  list_init(&(t->files));
+  list_init(&(t->child_threads));
+  t->next_fd = 2;
+  // lock_init(&(t->lock_filesys));
+  lock_init(&(t->lock_child));
+  cond_init(&(t->cond_child));
+  t->locked_child_tid = 0;
+  //
+  // #endif
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

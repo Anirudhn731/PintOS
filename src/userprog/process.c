@@ -18,7 +18,9 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
+#include "userprog/syscall.h"
 
+// extern struct list all_list;
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 static void allocate_args(int argc, char** tokens, void **esp);
@@ -30,7 +32,6 @@ static void allocate_args(int argc, char** tokens, void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
-  sema_init(&userprog_exit_sema, 0);
   char *fn_copy;
   tid_t tid;
 
@@ -98,8 +99,22 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
- sema_down(&userprog_exit_sema);
-// while(!thread_current()->ex) ;
+  struct list_elem* elem;
+  struct child_thread* child;
+  for (struct list_elem* e = list_begin(&(thread_current()->child_threads)); e != list_end(&(thread_current()->child_threads)); e = list_next(e)) {
+    struct child_thread* temp_child = list_entry(e, struct child_thread, elem);
+    if(temp_child->child_tid == child_tid) {
+      thread_current()->locked_child_tid = child_tid;
+      child = temp_child;
+      elem = e;
+    }
+  }
+  lock_acquire(&(thread_current()->lock_child));
+  if(child && !(child->is_exit)) {
+    cond_wait(&(thread_current()->cond_child), &(thread_current()->lock_child));
+  }
+  lock_release(&(thread_current()->lock_child));
+  list_remove(elem);
   return -1;
 }
 
@@ -109,6 +124,9 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  lock_acquire_filesys();
+  close_all_files(&thread_current()->files);
+  lock_release_filesys();
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -126,8 +144,6 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-  
-  sema_up(&userprog_exit_sema);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -251,6 +267,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  lock_acquire_filesys();
   file = filesys_open (tokens[0]);
   if (file == NULL) 
     {
@@ -340,10 +357,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
+  file_deny_write(file);
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  lock_release_filesys();
   return success;
 }
 

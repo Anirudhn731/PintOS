@@ -4,6 +4,15 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+
+/* Struct for holding information about child threads in parent thread */
+struct child_thread {
+   int child_tid; /* Holds tid of child thread */
+   bool is_exit; /* Holds whether child has exited or not. */
+   //int status; /* Holds the status code of child */
+   struct list_elem elem; /* list elem for struct child_threads inside parent thread */
+};
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -96,8 +105,16 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+   //  struct list files;
+   //  int next_fd;
 #endif
-
+    struct list files;                 /* List of files being used by thread */
+    int next_fd;                       /* Holds the next file descriptor for files of thread */
+    struct thread* parent_thread;      /* Parent thread attached to child threads */
+    struct list child_threads;         /* List of child threads inside parent thread */
+    struct lock lock_child;            /* Lock when child is used for parent */
+    struct condition cond_child;       /* Condition when child is used for parent */
+    int locked_child_tid;              /* Holds the tid of child for whom the parent should be locked for */
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

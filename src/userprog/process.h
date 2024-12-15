@@ -4,7 +4,6 @@
 #include "threads/thread.h"
 #include "threads/synch.h"
 
-struct semaphore userprog_exit_sema;
 tid_t process_execute (const char *file_name);
 int process_wait (tid_t);
 void process_exit (void);
