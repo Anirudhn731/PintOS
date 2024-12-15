@@ -2,5 +2,7 @@
 #define USERPROG_SYSCALL_H
 
 void syscall_init (void);
+void syscall_exit(void);
+void validate_safe_memory(const void *vaddr);
 
 #endif /* userprog/syscall.h */
