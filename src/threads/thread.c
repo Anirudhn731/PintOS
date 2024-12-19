@@ -203,6 +203,7 @@ thread_create (const char *name, int priority,
   struct child_thread* child = malloc(sizeof(*child));
   child->child_tid = tid;
   child->is_exit = false;
+  child->exit_code = t->exit_code;
   list_push_back(&(thread_current()->child_threads), &(child->elem));
 
   /* Stack frame for kernel_thread(). */

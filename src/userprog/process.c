@@ -99,8 +99,8 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  struct list_elem* elem;
-  struct child_thread* child;
+  struct list_elem* elem = NULL;
+  struct child_thread* child = NULL;
   for (struct list_elem* e = list_begin(&(thread_current()->child_threads)); e != list_end(&(thread_current()->child_threads)); e = list_next(e)) {
     struct child_thread* temp_child = list_entry(e, struct child_thread, elem);
     if(temp_child->child_tid == child_tid) {
@@ -109,13 +109,17 @@ process_wait (tid_t child_tid UNUSED)
       elem = e;
     }
   }
+  if(!child || !elem) {
+    return -1;
+  }
   lock_acquire(&(thread_current()->lock_child));
   if(child && !(child->is_exit)) {
     cond_wait(&(thread_current()->cond_child), &(thread_current()->lock_child));
   }
   lock_release(&(thread_current()->lock_child));
+  int exit_code = child->exit_code;
   list_remove(elem);
-  return -1;
+  return exit_code;
 }
 
 /* Free the current process's resources. */
@@ -125,7 +129,7 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
   lock_acquire_filesys();
-  close_all_files(&thread_current()->files);
+  close_userprog_files(&thread_current()->files);
   lock_release_filesys();
 
   /* Destroy the current process's page directory and switch back

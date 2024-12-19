@@ -10,7 +10,7 @@
 struct child_thread {
    int child_tid; /* Holds tid of child thread */
    bool is_exit; /* Holds whether child has exited or not. */
-   //int status; /* Holds the status code of child */
+   int exit_code; /* Holds the error code of child */
    struct list_elem elem; /* list elem for struct child_threads inside parent thread */
 };
 
@@ -115,6 +115,7 @@ struct thread
     struct lock lock_child;            /* Lock when child is used for parent */
     struct condition cond_child;       /* Condition when child is used for parent */
     int locked_child_tid;              /* Holds the tid of child for whom the parent should be locked for */
+    int exit_code;                     /* Holds exit error code of the thread */
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

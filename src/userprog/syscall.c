@@ -11,11 +11,11 @@
 #include "filesys/file.h"
 #include "devices/input.h"
 
-int exit_code = 0;
+/* A Mapping between struct file * and file descriptors */
 struct mapping_file {
-  int fd;
-  struct file* file_;
-  struct list_elem elem;
+  int fd; // File Descriptor
+  struct file* file_; // file struct pointer
+  struct list_elem elem; // List elem to store onto the list files in thread
 };
 
 struct mapping_file* files_search(struct list* files, int fd) {
@@ -35,23 +35,23 @@ void syscall_exit(int exit_status) {
     struct child_thread* temp_child = list_entry(e, struct child_thread, elem);
     if(temp_child) {
       if(temp_child->child_tid == thread_current()->tid) {
+        thread_current()->exit_code = exit_status;
+        temp_child->exit_code = exit_status;
         temp_child->is_exit = true;
-  
-        lock_acquire(&(thread_current()->parent_thread->lock_child));
-        if(thread_current()->parent_thread->locked_child_tid == thread_current()->tid) {
-          cond_signal(&(thread_current()->parent_thread->cond_child), &(thread_current()->parent_thread->lock_child));
-        }
-        lock_release(&(thread_current()->parent_thread->lock_child));
-        break;
       }
     }
     else {
-      exit_code = -1;
+      thread_current()->exit_code = -1;
     }
   }
 
-  exit_code = exit_status;
-  printf("%s: exit(%d)\n", thread_current()->name, exit_code);
+  lock_acquire(&(thread_current()->parent_thread->lock_child));
+  if(thread_current()->parent_thread->locked_child_tid == thread_current()->tid) {
+    cond_signal(&(thread_current()->parent_thread->cond_child), &(thread_current()->parent_thread->lock_child));
+  }
+  lock_release(&(thread_current()->parent_thread->lock_child));
+
+  printf("%s: exit(%d)\n", thread_current()->name, thread_current()->exit_code);
   thread_exit();
 }
 
@@ -87,7 +87,7 @@ int syscall_exec(char* file_name) {
 
 }
 
-void close_all_files(struct list* files)
+void close_userprog_files(struct list* files)
 {
 	struct list_elem *e;
       for (e = list_begin (files); e != list_end (files);
@@ -100,10 +100,11 @@ void close_all_files(struct list* files)
         }
 }
 
-void validate_safe_memory(const void *vaddr) {
-  if(!is_user_vaddr(vaddr) || !pagedir_get_page(thread_current()->pagedir, vaddr)) {
+void validate_safe_memory(const void *uaddr) {
+  if(!uaddr || !is_user_vaddr(uaddr) || pagedir_get_page(thread_current()->pagedir, uaddr) == NULL) {
     syscall_exit(-1);
   }
+
 }
 
 void
@@ -115,14 +116,10 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f) 
 {
-  int* f_esp = f->esp;
-  validate_safe_memory(f_esp);
+  validate_safe_memory(f->esp);
+  int* f_esp = (int)f->esp;
   int syscall = *f_esp;
   switch (syscall) {
-    case SYS_HALT:
-      shutdown_power_off();
-      break;
-
     case SYS_EXEC:
       validate_safe_memory(f_esp + 1);
       validate_safe_memory(*(f_esp + 1));
@@ -245,7 +242,11 @@ syscall_handler (struct intr_frame *f)
       lock_release_filesys();
       break;
 
+    case SYS_HALT:
+      shutdown_power_off();
+      break;
+
     default:
-      printf("%d\n", *f_esp);
+      printf("Do Nothing\n");
   }
 }
